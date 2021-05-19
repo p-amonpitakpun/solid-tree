@@ -4,6 +4,8 @@ from solid import cylinder, sphere
 import numpy as np
 
 
+tree_id = 0
+
 def decay(y_0, y_N, k):
     def y(x):
         return y_N - (y_N - y_0) * np.exp(- k * x)
@@ -17,6 +19,9 @@ def percent(y_0, y_N, i, N):
 
 class Branch:
     def __init__(self, btype, origin, orientation, i, N, r_0=2):
+        global tree_id
+        self._id = tree_id
+        tree_id += 1
         self.btype = btype
         self.origin = origin
         self.orientation = orientation
@@ -48,60 +53,65 @@ class Branch:
         
         self.config = []
         
-    def grow(self, i):
-        l = self.L(i)
-        self.r2 = self.r(i + 1)
-        t = 15 - 30 * np.random.rand()
-        phi = 180 - 360 * np.random.rand()
-        z = l * np.cos(np.deg2rad(np.sum(self.Theta) + t))
-        w = l * np.sin(np.deg2rad(np.sum(self.Theta) + t))
-        x = w * np.cos(np.deg2rad(np.sum(self.Phi) + phi))
-        y = w * np.sin(np.deg2rad(np.sum(self.Phi) + phi))
+    def grow(self, i, verbose=False):
+        if i < self.N:
+            l = self.L(i)
+            self.r2 = self.r(i + 1)
+            t = 15 - 30 * np.random.rand()
+            phi = 180 - 360 * np.random.rand()
+            z = l * np.cos(np.deg2rad(np.sum(self.Theta) + t))
+            w = l * np.sin(np.deg2rad(np.sum(self.Theta) + t))
+            x = w * np.cos(np.deg2rad(np.sum(self.Phi) + phi))
+            y = w * np.sin(np.deg2rad(np.sum(self.Phi) + phi))
 
-#         if i <= self.i + 1:
-#             print(f'btype: {self.btype} \t L: {l:.03f} \t r: {self.r1:.03f} , {self.r2:.03f} \t t: {t:.03f}')
+            translation = [sum(self.X), sum(self.Y), sum(self.Z)]
+            rotation = [0, sum(self.Theta) + t, sum(self.Phi) + phi]
+            
+            if verbose:
+                print(f'{i}:\t grow existed t{self._id} \t\t {[l, self.r1, self.r2]}')
 
-        translation = [sum(self.X), sum(self.Y), sum(self.Z)]
-        rotation = [0, sum(self.Theta) + t, sum(self.Phi) + phi]
-        
-        c = translate(translation)(
-            rotate(rotation)(
-                union()(
-                    cylinder(h=l, r1=self.r1, r2=self.r2),
-                    sphere(self.r1)
+            c = translate(translation)(
+                rotate(rotation)(
+                    union()(
+                        cylinder(h=l, r1=self.r1, r2=self.r2),
+                        sphere(self.r1)
+                    )
                 )
             )
-        )
+
+    #         self.config.append({
+    #             'translation': translation,
+    #             'rotation': rotation,
+    #             'cylinder': { 'h': l, 'r1': self.r1, 'r2': self.r2 },
+    #             'sphere': { 'radius': self.r1 },
+    #         })
+            self.config.append([
+                translation,
+                rotation,
+                [l, self.r1, self.r2],
+                [self.r1],
+            ])
+
+
+            self.cylinders.append(c.copy())
+            self.L_list.append(l)
+            self.r1 = self.r2
+
+            self.Theta.append(t)
+            self.Phi.append(phi)
+            self.X.append(x)
+            self.Y.append(y)
+            self.Z.append(z)
     
-#         self.config.append({
-#             'translation': translation,
-#             'rotation': rotation,
-#             'cylinder': { 'h': l, 'r1': self.r1, 'r2': self.r2 },
-#             'sphere': { 'radius': self.r1 },
-#         })
-        self.config.append([
-            translation,
-            rotation,
-            [l, self.r1, self.r2],
-            [self.r1],
-        ])
-
-
-        self.cylinders.append(c.copy())
-        self.L_list.append(l)
-        self.r1 = self.r2
-
-        self.Theta.append(t)
-        self.Phi.append(phi)
-        self.X.append(x)
-        self.Y.append(y)
-        self.Z.append(z)
-    
-    def branching(self, i, N):
+    def branching(self, i, N, verbose=False):
+        new_branch = []
+        for _ in range(np.random.randint(1, 2)):
             origin = [sum(self.X[: -1]), sum(self.Y[: -1]), sum(self.Z[: -1])]
             orientation = [0, sum(self.Theta[: -1]) + 90 - 45 * np.random.rand(), sum(self.Phi[: -1]) + 90 * np.random.rand()]
-#             print(f'new branch {i} {N} from {self.btype}')
-            return Branch(self.btype + 1, origin, orientation, i, N, r_0=self.r_0 * 0.75)
+            if verbose:
+                print(f'{i}:\t branching from t{self._id}:{self.btype} \t\t {[i, N, self.r_0 * 0.75]}')
+            new_branch.append(Branch(self.btype + 1, origin, orientation, i, N, r_0=self.r_0 * 0.75))
+        return new_branch
     
     
 class Tree:
@@ -111,31 +121,28 @@ class Tree:
         
         self.branches = []
         
-    def render(self, N):
-        config = {
-            'r': 2
-        }
+    def grow(self, N, verbose=False):
         trunk = Branch(0, self.origin, self.orientation, 0, N)
         self.branches.append(trunk)
 
         for i in range(N):
             new_branches = []
             for branch in self.branches:
-#                 print(i, 'grow existed', branch)
-                branch.grow(i)
+                branch.grow(i, verbose=verbose)
 
                 if i > 0 and self.is_branching:
-                    new_branch = branch.branching(i, N)
-#                     print(i, 'grow new', new_branch, 'from', branch)
-                    if new_branch is not None:
-                        new_branches.append(new_branch)
+                    new_subbranchs = branch.branching(i, N, verbose=verbose)
+                    if len(new_subbranchs) > 0:
+                        for new_branch in new_subbranchs:
+                            if verbose:
+                                print(f'{i}:\t grow new t{new_branch._id} from t{branch._id}')
+                            new_branches.append(new_branch)
                         
             for branch in new_branches:
                 branch.grow(i)
                 self.branches.append(branch)
                 
     def getParts(self):
-#         print(self.branches)
         parts = []
         for branch in self.branches[: ]:
             for cylinder in branch.cylinders:
@@ -150,8 +157,12 @@ class Tree:
         return all_config
 
     def is_branching(self, i, N):
-#         k = - np.log(0.05) / N
-#         chance = 1 - np.exp(- k * i)
         chance = percent(0.125, 0.50, i, N)()
         return np.random.choice([False, True], p=[1 - chance, chance])
+    
+    def getObject(self):
+        ##
+        # get renderable SCAD object
+        ##
+        return union()(self.getParts())
     
